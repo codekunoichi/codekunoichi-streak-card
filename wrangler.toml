@@ -1,0 +1,14 @@
+name = "codekunoichi-streak-card"
+main = "src/index.ts"
+compatibility_date = "2024-12-19"
+
+# KV namespace binding
+[[kv_namespaces]]
+binding = "STREAK_KV"
+id = "710955b2d5a0416ca03aa0761b403c4b"
+preview_id = "710955b2d5a0416ca03aa0761b403c4b"
+
+# Environment variables
+# Set these via `wrangler secret put GITHUB_TOKEN` or in the Cloudflare dashboard
+[vars]
+GITHUB_USERNAME = "codekunoichi"
