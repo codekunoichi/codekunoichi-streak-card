@@ -1,0 +1,73 @@
+# GitHub Pages Configuration for Jekyll
+
+# Site settings
+title: "GitHub Streak Card"
+description: "Self-hosted GitHub streak card on Cloudflare Workers - reliable, fast, and free"
+author: codekunoichi
+email:
+
+# Build settings
+theme: minima
+markdown: kramdown
+
+# GitHub repository
+repository: codekunoichi/codekunoichi-streak-card
+github_username: codekunoichi
+
+# URL settings
+url: "https://codekunoichi.github.io"
+baseurl: "/codekunoichi-streak-card"
+
+# Exclude from build
+exclude:
+  - node_modules
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - wrangler.toml
+  - src
+  - .gitignore
+  - .dev.vars
+  - README.md
+  - intent.md
+  - CLAUDE.md
+  - "*.svg"
+
+# Include these files in the build
+include:
+  - docs
+
+# Plugins
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+  - jekyll-sitemap
+
+# Kramdown settings
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+  syntax_highlighter_opts:
+    block:
+      line_numbers: false
+
+# Social links (optional - update with your info)
+twitter_username:
+linkedin_username:
+
+# Google Analytics (optional - add your tracking ID)
+# google_analytics: UA-XXXXXXXXX-X
+
+# Collections (if you want to add more documentation sections)
+collections:
+  docs:
+    output: true
+    permalink: /:collection/:path/
+
+# Defaults
+defaults:
+  - scope:
+      path: ""
+      type: "docs"
+    values:
+      layout: "page"
