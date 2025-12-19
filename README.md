@@ -1,106 +1,91 @@
 # GitHub Streak Card (Self-Hosted)
 
+[![GitHub Release](https://img.shields.io/github/v/release/codekunoichi/codekunoichi-streak-card)](https://github.com/codekunoichi/codekunoichi-streak-card/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A reliable, self-hosted GitHub streak card served as an SVG from Cloudflare Workers. Designed to never break visually, even when GitHub's API is unavailable.
 
-![GitHub Streak](https://your-worker-domain.workers.dev/streak.svg)
+![GitHub Streak](https://codekunoichi-streak-card.codekunoichi-github-streak.workers.dev/streak.svg)
 
-## Features
+**Live Example**: [@codekunoichi's streak card](https://github.com/codekunoichi)
 
-- **Reliable**: Uses KV-based fallback to serve last-known-good SVG when GitHub API fails
-- **Secure**: Username is environment-variable only; cannot be used for other users
-- **Fast**: Aggressive edge caching with stale-while-revalidate
-- **Simple**: No database, no UI, no scheduled jobs
+## ✨ Features
 
-## Setup
+- **100% Reliable**: KV-based fallback ensures your README never shows a broken image
+- **Blazing Fast**: Aggressive edge caching on Cloudflare's global network
+- **Secure**: Username is environment-variable only; can't be hijacked for other users
+- **Dead Simple**: Only 2 things to configure - your username and GitHub token
+- **Free Forever**: Runs on Cloudflare's generous free tier
+
+## 🚀 Fork This Project
+
+**Want your own streak card?** It's easy! You only need to change **2 things**:
+
+1. Your GitHub username (in `wrangler.toml`)
+2. Your GitHub Personal Access Token (as a Cloudflare secret)
+
+That's it! Everything else works out of the box.
+
+### Quick Start
+
+1. **Fork this repository** → Click the Fork button above
+2. **Follow the [Setup Guide](https://codekunoichi.github.io/codekunoichi-streak-card/setup.html)** → 10-minute setup
+3. **Deploy** → `npm run deploy`
+4. **Add to your README** → Copy your worker URL
+
+## 📖 Full Documentation
+
+For complete step-by-step instructions, visit our **[Documentation Site](https://codekunoichi.github.io/codekunoichi-streak-card/)**:
+
+- **[Setup Guide](https://codekunoichi.github.io/codekunoichi-streak-card/setup.html)** - Cloudflare account, GitHub tokens, KV namespace
+- **[Deployment Guide](https://codekunoichi.github.io/codekunoichi-streak-card/deployment.html)** - Local testing and production deployment
+- **[Troubleshooting](https://codekunoichi.github.io/codekunoichi-streak-card/deployment.html#troubleshooting)** - Common issues and solutions
+
+## 📋 Quick Reference
 
 ### Prerequisites
-
-- [Node.js](https://nodejs.org/) (v18 or later)
-- [Cloudflare account](https://dash.cloudflare.com/sign-up)
-- GitHub Personal Access Token with `read:user` permission
+- Node.js v18+
+- Free Cloudflare account
+- GitHub Personal Access Token (read:user permission)
 
 ### Installation
-
-1. Clone this repository:
-   ```bash
-   git clone <your-repo-url>
-   cd codekunoichi-streak-card
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Create a KV namespace:
-   ```bash
-   wrangler kv:namespace create "STREAK_KV"
-   ```
-
-   This will output a namespace ID. Copy it.
-
-4. Update `wrangler.toml`:
-   ```toml
-   [[kv_namespaces]]
-   binding = "STREAK_KV"
-   id = "YOUR_KV_NAMESPACE_ID_HERE"  # Replace with the ID from step 3
-   ```
-
-5. Set your GitHub username in `wrangler.toml` (optional, defaults to `codekunoichi`):
-   ```toml
-   [vars]
-   GITHUB_USERNAME = "your-username"
-   ```
-
-6. Add your GitHub token as a secret:
-   ```bash
-   wrangler secret put GITHUB_TOKEN
-   ```
-
-   When prompted, paste your GitHub Personal Access Token.
-
-## Development
-
-Run the worker locally:
-
 ```bash
-npm run dev
-```
+# 1. Fork and clone this repo
+git clone https://github.com/YOUR-USERNAME/codekunoichi-streak-card.git
+cd codekunoichi-streak-card
 
-Then visit:
-- http://localhost:8787/streak.svg
-- http://localhost:8787/health
+# 2. Install dependencies
+npm install
 
-## Deployment
+# 3. Create KV namespace
+npx wrangler kv:namespace create "STREAK_KV"
 
-Deploy to Cloudflare Workers:
+# 4. Update wrangler.toml with your username and KV namespace ID
 
-```bash
+# 5. Set your GitHub token
+npx wrangler secret put GITHUB_TOKEN
+
+# 6. Deploy
 npm run deploy
 ```
 
-After deployment, you'll receive a URL like:
+### Local Development
+```bash
+# Create .dev.vars file with your GitHub token
+echo "GITHUB_TOKEN=your_token_here" > .dev.vars
+
+# Start local server
+npm run dev
+
+# Visit http://localhost:8787/streak.svg
 ```
-https://codekunoichi-streak-card.<your-subdomain>.workers.dev
-```
 
-## Usage
-
-Embed the SVG in your GitHub README:
-
+### Usage in README
 ```markdown
-![GitHub Streak](https://your-worker-domain.workers.dev/streak.svg)
+![GitHub Streak](https://your-worker-name.workers.dev/streak.svg)
 ```
 
-### Cache Busting
-
-The worker ignores query parameters, so you can manually bust GitHub's image cache:
-
-```markdown
-![GitHub Streak](https://your-worker-domain.workers.dev/streak.svg?v=1)
-```
-
-Increment the version number to force GitHub to re-fetch the image.
+**For detailed instructions**, see the [Full Documentation](https://codekunoichi.github.io/codekunoichi-streak-card/)
 
 ## How It Works
 
