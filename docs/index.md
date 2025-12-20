@@ -19,6 +19,10 @@ Check out the live streak card for [@codekunoichi](https://github.com/codekunoic
 
 **Production URL**: [https://codekunoichi-streak-card.codekunoichi-github-streak.workers.dev/streak.svg](https://codekunoichi-streak-card.codekunoichi-github-streak.workers.dev/streak.svg)
 
+## Origin Story
+
+Originally on my README, I had used publicly available git streak services, and far too often they broke over and over again! It was frustrating—the streak was gentle motivation, and having come along 100 days plus, I wanted to keep going. So as the saying goes, necessity is the mother of invention. And with Claude Code's help, we put together a simple git streak card to never go down again!
+
 ## Features
 
 ### Current Streak
