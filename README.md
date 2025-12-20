@@ -9,6 +9,10 @@ A reliable, self-hosted GitHub streak card served as an SVG from Cloudflare Work
 
 **Live Example**: [@codekunoichi's streak card](https://github.com/codekunoichi)
 
+## 💡 Origin Story
+
+Originally on my README, I had used publicly available git streak services, and far too often they broke over and over again! It was frustrating—the streak was gentle motivation, and having come along 100 days plus, I wanted to keep going. So as the saying goes, necessity is the mother of invention. And with Claude Code's help, we put together a simple git streak card to never go down again!
+
 ## ✨ Features
 
 - **100% Reliable**: KV-based fallback ensures your README never shows a broken image
