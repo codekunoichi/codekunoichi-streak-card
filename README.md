@@ -5,7 +5,7 @@
 
 A reliable, self-hosted GitHub streak card served as an SVG from Cloudflare Workers. Designed to never break visually, even when GitHub's API is unavailable.
 
-![GitHub Streak](https://codekunoichi-streak-card.codekunoichi-github-streak.workers.dev/streak.svg)
+![GitHub Streak](https://codekunoichi-streak-card.codekunoichi-github-streak.workers.dev/streak.svg?v=2)
 
 **Live Example**: [@codekunoichi's streak card](https://github.com/codekunoichi)
 
