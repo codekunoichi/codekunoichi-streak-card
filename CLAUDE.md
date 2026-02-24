@@ -64,8 +64,9 @@ Set these in Wrangler or Cloudflare dashboard:
 ## Streak Calculation Rules
 
 ### Current Streak
-- Count consecutive days ending **today (UTC)** where `contributionCount > 0`
-- If today has 0 contributions, current streak is 0
+- Count consecutive days ending **today or yesterday (UTC)** where `contributionCount > 0`
+- If today (UTC) has 0 contributions, skip it and check from yesterday — the UTC day may have started before the user's local day ended
+- If both today and yesterday have 0 contributions, current streak is 0
 
 ### Longest Streak
 - Maximum consecutive run of days with `contributionCount > 0` within the fetched range

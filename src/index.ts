@@ -212,6 +212,12 @@ function calculateStreaks(days: ContributionDay[], username: string): StreakData
       continue;
     }
 
+    // Skip today if it has 0 contributions — the UTC day may have started
+    // before the user's local day ended, so don't break the streak yet.
+    if (day.date === todayStr && day.contributionCount === 0) {
+      continue;
+    }
+
     if (day.contributionCount > 0) {
       if (currentStreak === 0) {
         currentStreakEnd = day.date;
