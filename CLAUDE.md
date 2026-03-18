@@ -71,6 +71,12 @@ Set these in Wrangler or Cloudflare dashboard:
 ### Longest Streak
 - Maximum consecutive run of days with `contributionCount > 0` within the fetched range
 
+### Weekly Streak
+- Counts consecutive **completed Sun–Sat weeks** where `contributionCount > 0` on at least **4 days**
+- The current (incomplete) week is **never counted** toward the streak — only fully elapsed weeks qualify
+- `currentWeekContributions` tracks days contributed so far in the current week (Sun–today) for display only
+- Walking backwards from the last completed week; stops at the first week with fewer than 4 active days
+
 ### Important Details
 - All dates must be in **UTC**
 - Days are sorted by date
@@ -79,17 +85,17 @@ Set these in Wrangler or Cloudflare dashboard:
 
 ## SVG Specifications
 
-- Size: approximately **520 × 120 pixels**
-- Dark theme (GitHub-friendly)
+- Size: **1000 × 220 pixels**
+- Light theme (white/slate gradient, GitHub-friendly)
 - Rounded corners
 - System fonts only
 - No animations or flashing effects
 
-Layout:
-- Header: `<username> • GitHub Streak`
-- Large text: `<current> days`
-- Small text: `Longest: <longest> days`
-- Footer: `Updated: YYYY-MM-DD`
+Layout (4 equal columns, ~230px each):
+- **Column 0** — Total Contributions: large number + "Total Contributions" label + date range
+- **Column 1** — Current Streak: orange progress ring, streak count, "Current Streak" label, date range
+- **Column 2** — Weekly Streak: purple progress ring, weekly streak count, "Weekly Streak" label, "X/4 this week" sub-label; small calendar icon above ring; ring fills based on current week's progress toward 4-day goal
+- **Column 3** — Longest Streak: large number + "Longest Streak" label + date range
 
 ## HTTP Caching
 
@@ -131,3 +137,4 @@ When testing:
 - Confirm identity parameters in query string are ignored
 - Test streak calculation edge cases (0 contributions today, gaps in data)
 - Validate SVG renders correctly in GitHub README context
+- Test weekly streak edge cases: week with exactly 4 active days (should count), 3 active days (should not), gap weeks breaking the streak, current week not influencing the streak count
