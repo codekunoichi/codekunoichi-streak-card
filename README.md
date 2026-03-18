@@ -20,6 +20,7 @@ Originally on my README, I had used publicly available git streak services, and 
 - **Secure**: Username is environment-variable only; can't be hijacked for other users
 - **Dead Simple**: Only 2 things to configure - your username and GitHub token
 - **Free Forever**: Runs on Cloudflare's generous free tier
+- **Weekly Streak**: Tracks consecutive weeks with ≥4 active contribution days, with live current-week progress
 
 ## 🚀 Fork This Project
 
@@ -96,8 +97,8 @@ npm run dev
 ### Data Flow
 
 1. Request arrives at `/streak.svg`
-2. Worker fetches last 370 days of contribution data from GitHub GraphQL API
-3. Calculates current and longest streaks
+2. Worker fetches full contribution history from GitHub GraphQL API (back to 2010)
+3. Calculates current streak, longest streak, and weekly streak
 4. Generates SVG and saves to KV as `last_good_svg`
 5. Returns SVG with cache headers
 
@@ -123,11 +124,13 @@ Cache-Control: public, max-age=0, s-maxage=21600, stale-while-revalidate=86400
 ## Streak Calculation
 
 ### Current Streak
-Counts consecutive days ending **today (UTC)** where contributions > 0.
-If today has 0 contributions, current streak is 0.
+Counts consecutive days ending **today or yesterday (UTC)** where contributions > 0. If today has 0 contributions, it is skipped (the UTC day may have started before your local day ended).
 
 ### Longest Streak
-Maximum consecutive run of days with contributions > 0 in the fetched range.
+Maximum consecutive run of days with contributions > 0 across all fetched history.
+
+### Weekly Streak
+Counts consecutive **completed Sun–Sat weeks** where at least **4 days** had contributions. The current in-progress week never counts toward the streak — only fully elapsed weeks qualify. The card also shows `X/4 this week` to reflect live progress toward the current week's goal, and the purple ring fills as you accumulate days.
 
 ## Environment Variables
 
