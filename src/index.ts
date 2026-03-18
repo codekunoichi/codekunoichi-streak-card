@@ -20,6 +20,8 @@ interface StreakData {
   firstContributionDate: string;
   username: string;
   updatedDate: string;
+  weeklyStreak: number;
+  currentWeekContributions: number;
 }
 
 const GITHUB_GRAPHQL_URL = 'https://api.github.com/graphql';
@@ -186,6 +188,65 @@ async function fetchGitHubContributions(username: string, token: string): Promis
   return allDays.sort((a, b) => a.date.localeCompare(b.date));
 }
 
+function calculateWeeklyStreak(days: ContributionDay[]): { weeklyStreak: number; currentWeekContributions: number } {
+  const today = new Date();
+  const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  const todayStr = todayUTC.toISOString().split('T')[0];
+
+  // Find the Sunday that started the current (incomplete) week
+  const currentWeekSunday = new Date(todayUTC);
+  currentWeekSunday.setUTCDate(todayUTC.getUTCDate() - todayUTC.getUTCDay());
+  const currentWeekSundayStr = currentWeekSunday.toISOString().split('T')[0];
+
+  // Tally active days per completed week (key = week's Sunday date string)
+  const weekActiveDays = new Map<string, number>();
+
+  for (const day of days) {
+    if (day.date > todayStr) continue;
+
+    const dayDate = new Date(day.date + 'T00:00:00Z');
+    const weekSunday = new Date(dayDate);
+    weekSunday.setUTCDate(dayDate.getUTCDate() - dayDate.getUTCDay());
+    const weekSundayStr = weekSunday.toISOString().split('T')[0];
+
+    if (weekSundayStr === currentWeekSundayStr) continue; // skip current incomplete week
+
+    if (day.contributionCount > 0) {
+      weekActiveDays.set(weekSundayStr, (weekActiveDays.get(weekSundayStr) || 0) + 1);
+    }
+  }
+
+  // Count days contributed in the current (incomplete) week
+  let currentWeekContributions = 0;
+  for (const day of days) {
+    const dayDate = new Date(day.date + 'T00:00:00Z');
+    const weekSunday = new Date(dayDate);
+    weekSunday.setUTCDate(dayDate.getUTCDate() - dayDate.getUTCDay());
+    if (weekSunday.toISOString().split('T')[0] === currentWeekSundayStr && day.contributionCount > 0) {
+      currentWeekContributions++;
+    }
+  }
+
+  // Walk backwards through completed weeks counting consecutive qualifying weeks (≥4 active days)
+  let weeklyStreak = 0;
+  const checkWeek = new Date(currentWeekSunday);
+  checkWeek.setUTCDate(checkWeek.getUTCDate() - 7); // start from last completed week
+
+  while (true) {
+    const weekSundayStr = checkWeek.toISOString().split('T')[0];
+    const activeDays = weekActiveDays.get(weekSundayStr) || 0;
+
+    if (activeDays >= 4) {
+      weeklyStreak++;
+      checkWeek.setUTCDate(checkWeek.getUTCDate() - 7);
+    } else {
+      break;
+    }
+  }
+
+  return { weeklyStreak, currentWeekContributions };
+}
+
 function calculateStreaks(days: ContributionDay[], username: string): StreakData {
   const today = new Date();
   const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
@@ -258,6 +319,8 @@ function calculateStreaks(days: ContributionDay[], username: string): StreakData
     }
   }
 
+  const { weeklyStreak, currentWeekContributions } = calculateWeeklyStreak(days);
+
   return {
     currentStreak,
     currentStreakStart,
@@ -269,6 +332,8 @@ function calculateStreaks(days: ContributionDay[], username: string): StreakData
     firstContributionDate: firstContributionDate || todayStr,
     username,
     updatedDate: todayStr,
+    weeklyStreak,
+    currentWeekContributions,
   };
 }
 
@@ -290,31 +355,46 @@ function formatDateRange(startStr: string, endStr: string): string {
 }
 
 function generateSVG(data: StreakData): string {
-  const width = 800;
+  const width = 1000;
   const height = 220;
   const padding = 40;
-  const columnWidth = (width - padding * 2) / 3;
+  const columnWidth = (width - padding * 2) / 4;
 
   const circleRadius = 45;
   const circleStrokeWidth = 8;
-  const circleCx = padding + columnWidth * 1.5;
   const circleCy = 85;
   const circumference = 2 * Math.PI * circleRadius;
 
+  // Current streak circle (column 1, orange)
+  const currentCx = padding + columnWidth * 1.5;
   const maxStreak = Math.max(data.currentStreak, 100);
-  const progress = Math.min((data.currentStreak / maxStreak) * 100, 100);
-  const strokeDashoffset = circumference - (progress / 100) * circumference;
+  const currentProgress = Math.min((data.currentStreak / maxStreak) * 100, 100);
+  const currentDashoffset = circumference - (currentProgress / 100) * circumference;
 
-  const flameIcon = `<path d="M ${circleCx} ${circleCy - circleRadius - 12}
+  // Weekly streak circle (column 2, purple)
+  const weeklyCx = padding + columnWidth * 2.5;
+  const weeklyProgress = Math.min((data.currentWeekContributions / 4) * 100, 100);
+  const weeklyDashoffset = circumference - (weeklyProgress / 100) * circumference;
+
+  const flameIcon = `<path d="M ${currentCx} ${circleCy - circleRadius - 12}
     c 0,-4 -2,-6 -4,-10 -1,-2 0,-3 1,-4 3,-2 6,1 8,4 2,4 4,8 4,13
     c 0,6 -5,11 -11,11 -6,0 -11,-5 -11,-11 0,-3 2,-6 4,-9 2,-2 4,-2 6,-1
     1,1 2,2 2,4 0,2 -1,4 -3,5 -1,1 -2,2 -2,3 0,1 1,3 3,3 2,0 3,-1 3,-3
     0,-1 0,-2 -1,-2"
     fill="#f97316" stroke="#ea580c" stroke-width="0.5"/>`;
 
+  // Small calendar icon above the weekly streak circle
+  const calY = circleCy - circleRadius - 22;
+  const calendarIcon = `
+  <rect x="${weeklyCx - 9}" y="${calY}" width="18" height="15" rx="2" fill="none" stroke="#8b5cf6" stroke-width="1.5"/>
+  <line x1="${weeklyCx - 9}" y1="${calY + 5}" x2="${weeklyCx + 9}" y2="${calY + 5}" stroke="#8b5cf6" stroke-width="1.5"/>
+  <line x1="${weeklyCx - 4}" y1="${calY - 2}" x2="${weeklyCx - 4}" y2="${calY + 3}" stroke="#8b5cf6" stroke-width="1.5"/>
+  <line x1="${weeklyCx + 4}" y1="${calY - 2}" x2="${weeklyCx + 4}" y2="${calY + 3}" stroke="#8b5cf6" stroke-width="1.5"/>`;
+
   const currentStreakRange = formatDateRange(data.currentStreakStart, data.currentStreakEnd);
   const longestStreakRange = formatDateRange(data.longestStreakStart, data.longestStreakEnd);
   const accountStart = formatFullDate(data.firstContributionDate);
+  const weekLabel = `${data.currentWeekContributions}/4 this week`;
 
   return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -326,7 +406,7 @@ function generateSVG(data: StreakData): string {
 
   <rect width="${width}" height="${height}" rx="16" fill="url(#grad)" stroke="#e2e8f0" stroke-width="1"/>
 
-  <!-- Left Column: Total Contributions -->
+  <!-- Column 0: Total Contributions -->
   <text x="${padding}" y="85" font-family="system-ui, -apple-system, sans-serif" font-size="48" fill="#0f172a" font-weight="700">
     ${data.totalContributions.toLocaleString()}
   </text>
@@ -337,49 +417,73 @@ function generateSVG(data: StreakData): string {
     ${accountStart} - Present
   </text>
 
-  <!-- Divider Line 1 -->
+  <!-- Divider 1 -->
   <line x1="${padding + columnWidth}" y1="${padding}" x2="${padding + columnWidth}" y2="${height - padding}" stroke="#e2e8f0" stroke-width="1"/>
 
-  <!-- Center Column: Current Streak -->
+  <!-- Column 1: Current Streak (orange) -->
   ${flameIcon}
 
-  <circle cx="${circleCx}" cy="${circleCy}" r="${circleRadius}"
+  <circle cx="${currentCx}" cy="${circleCy}" r="${circleRadius}"
     fill="none" stroke="#e2e8f0" stroke-width="${circleStrokeWidth}"/>
-
-  <circle cx="${circleCx}" cy="${circleCy}" r="${circleRadius}"
+  <circle cx="${currentCx}" cy="${circleCy}" r="${circleRadius}"
     fill="none" stroke="#f97316" stroke-width="${circleStrokeWidth}"
     stroke-dasharray="${circumference}"
-    stroke-dashoffset="${strokeDashoffset}"
+    stroke-dashoffset="${currentDashoffset}"
     stroke-linecap="round"
-    transform="rotate(-90 ${circleCx} ${circleCy})"/>
-
-  <text x="${circleCx}" y="${circleCy + 10}" font-family="system-ui, -apple-system, sans-serif"
+    transform="rotate(-90 ${currentCx} ${circleCy})"/>
+  <text x="${currentCx}" y="${circleCy + 10}" font-family="system-ui, -apple-system, sans-serif"
     font-size="40" fill="#0f172a" font-weight="700" text-anchor="middle">
     ${data.currentStreak}
   </text>
-
-  <text x="${circleCx}" y="${circleCy + circleRadius + 30}" font-family="system-ui, -apple-system, sans-serif"
+  <text x="${currentCx}" y="${circleCy + circleRadius + 30}" font-family="system-ui, -apple-system, sans-serif"
     font-size="20" fill="#f97316" font-weight="600" text-anchor="middle">
     Current Streak
   </text>
-  <text x="${circleCx}" y="${circleCy + circleRadius + 52}" font-family="system-ui, -apple-system, sans-serif"
+  <text x="${currentCx}" y="${circleCy + circleRadius + 52}" font-family="system-ui, -apple-system, sans-serif"
     font-size="14" fill="#64748b" text-anchor="middle">
     ${currentStreakRange}
   </text>
 
-  <!-- Divider Line 2 -->
+  <!-- Divider 2 -->
   <line x1="${padding + columnWidth * 2}" y1="${padding}" x2="${padding + columnWidth * 2}" y2="${height - padding}" stroke="#e2e8f0" stroke-width="1"/>
 
-  <!-- Right Column: Longest Streak -->
-  <text x="${padding + columnWidth * 2.5}" y="85" font-family="system-ui, -apple-system, sans-serif"
+  <!-- Column 2: Weekly Streak (purple) -->
+  ${calendarIcon}
+
+  <circle cx="${weeklyCx}" cy="${circleCy}" r="${circleRadius}"
+    fill="none" stroke="#e2e8f0" stroke-width="${circleStrokeWidth}"/>
+  <circle cx="${weeklyCx}" cy="${circleCy}" r="${circleRadius}"
+    fill="none" stroke="#8b5cf6" stroke-width="${circleStrokeWidth}"
+    stroke-dasharray="${circumference}"
+    stroke-dashoffset="${weeklyDashoffset}"
+    stroke-linecap="round"
+    transform="rotate(-90 ${weeklyCx} ${circleCy})"/>
+  <text x="${weeklyCx}" y="${circleCy + 10}" font-family="system-ui, -apple-system, sans-serif"
+    font-size="40" fill="#0f172a" font-weight="700" text-anchor="middle">
+    ${data.weeklyStreak}
+  </text>
+  <text x="${weeklyCx}" y="${circleCy + circleRadius + 30}" font-family="system-ui, -apple-system, sans-serif"
+    font-size="20" fill="#8b5cf6" font-weight="600" text-anchor="middle">
+    Weekly Streak
+  </text>
+  <text x="${weeklyCx}" y="${circleCy + circleRadius + 52}" font-family="system-ui, -apple-system, sans-serif"
+    font-size="14" fill="#64748b" text-anchor="middle">
+    ${weekLabel}
+  </text>
+
+  <!-- Divider 3 -->
+  <line x1="${padding + columnWidth * 3}" y1="${padding}" x2="${padding + columnWidth * 3}" y2="${height - padding}" stroke="#e2e8f0" stroke-width="1"/>
+
+  <!-- Column 3: Longest Streak -->
+  <text x="${padding + columnWidth * 3.5}" y="85" font-family="system-ui, -apple-system, sans-serif"
     font-size="48" fill="#0f172a" font-weight="700" text-anchor="middle">
     ${data.longestStreak}
   </text>
-  <text x="${padding + columnWidth * 2.5}" y="115" font-family="system-ui, -apple-system, sans-serif"
+  <text x="${padding + columnWidth * 3.5}" y="115" font-family="system-ui, -apple-system, sans-serif"
     font-size="18" fill="#64748b" font-weight="500" text-anchor="middle">
     Longest Streak
   </text>
-  <text x="${padding + columnWidth * 2.5}" y="145" font-family="system-ui, -apple-system, sans-serif"
+  <text x="${padding + columnWidth * 3.5}" y="145" font-family="system-ui, -apple-system, sans-serif"
     font-size="14" fill="#94a3b8" text-anchor="middle">
     ${longestStreakRange}
   </text>
@@ -387,7 +491,7 @@ function generateSVG(data: StreakData): string {
 }
 
 function generateFallbackSVG(): string {
-  const width = 800;
+  const width = 1000;
   const height = 220;
 
   return `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
