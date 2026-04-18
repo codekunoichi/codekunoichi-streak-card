@@ -22,9 +22,6 @@ interface StreakData {
   updatedDate: string;
   weeklyStreak: number;
   currentWeekContributions: number;
-  graceGapDays: number;
-  graceProtected: boolean;
-  consecutiveMissed: number;
   missedDaysInWindow: number;
 }
 
@@ -251,32 +248,25 @@ function calculateWeeklyStreak(days: ContributionDay[]): { weeklyStreak: number;
   return { weeklyStreak, currentWeekContributions };
 }
 
-function calculateGraceRun(
-  sortedDesc: ContributionDay[],
-  startIdx: number
-): { streak: number; streakStart: string; streakEnd: string; graceGapDays: number } {
-  let streak = 0;
-  let streakStart = '';
-  let streakEnd = '';
-  let graceGapDays = 0;
-  let consecutiveMisses = 0;
+// Returns the start of the active grace window: the first contribution day after the most
+// recent block of 7+ consecutive zero-contribution days. Resets whenever such a block occurs.
+function findGraceStreakStart(days: ContributionDay[], todayStr: string): string {
+  let graceStart = '';
+  let consecutiveZeros = 0;
 
-  for (let j = startIdx; j < sortedDesc.length; j++) {
-    const day = sortedDesc[j];
+  for (const day of days) {
+    if (day.date > todayStr) break;
     if (day.contributionCount > 0) {
-      if (streak === 0) streakEnd = day.date;
-      streakStart = day.date;
-      streak++;
-      consecutiveMisses = 0;
-    } else if (consecutiveMisses === 0) {
-      graceGapDays++;
-      consecutiveMisses = 1;
+      if (consecutiveZeros >= 7 || !graceStart) {
+        graceStart = day.date;
+      }
+      consecutiveZeros = 0;
     } else {
-      break;
+      consecutiveZeros++;
     }
   }
 
-  return { streak, streakStart, streakEnd, graceGapDays };
+  return graceStart;
 }
 
 function calculateStreaks(days: ContributionDay[], username: string): StreakData {
@@ -294,64 +284,32 @@ function calculateStreaks(days: ContributionDay[], username: string): StreakData
     }
   }
 
-  // Grace streak: 1-day gaps are bridged; 2–6 consecutive misses freeze the streak
-  // (reduced by gap size); 7+ consecutive misses reset to 0.
-  const sortedDesc = [...days].sort((a, b) => b.date.localeCompare(a.date));
+  // Grace window: starts at the first contribution after the most recent 7+ consecutive
+  // zero block and extends to today. Resets only on 7+ consecutive misses.
+  const graceStart = findGraceStreakStart(days, todayStr);
 
-  let startIdx = 0;
-  while (startIdx < sortedDesc.length && sortedDesc[startIdx].date > todayStr) startIdx++;
-  if (
-    startIdx < sortedDesc.length &&
-    sortedDesc[startIdx].date === todayStr &&
-    sortedDesc[startIdx].contributionCount === 0
-  ) {
-    startIdx++;
+  // Grace window end: skip today if it has 0 contributions (UTC day may precede local day)
+  let graceEnd = todayStr;
+  const todayEntry = days.find(d => d.date === todayStr);
+  if (!todayEntry || todayEntry.contributionCount === 0) {
+    const yesterday = new Date(todayUTC);
+    yesterday.setUTCDate(todayUTC.getUTCDate() - 1);
+    graceEnd = yesterday.toISOString().split('T')[0];
   }
 
-  let leadingMisses = 0;
-  let afterGapIdx = startIdx;
-  while (afterGapIdx < sortedDesc.length && sortedDesc[afterGapIdx].contributionCount === 0) {
-    leadingMisses++;
-    afterGapIdx++;
-  }
+  // Current streak = calendar days in the grace window (inclusive)
+  const graceStartDate = new Date(graceStart + 'T00:00:00Z');
+  const graceEndDate = new Date(graceEnd + 'T00:00:00Z');
+  const currentStreak = graceStart
+    ? Math.round((graceEndDate.getTime() - graceStartDate.getTime()) / 86400000) + 1
+    : 0;
+  const currentStreakStart = graceStart;
+  const currentStreakEnd = graceStart ? graceEnd : '';
 
-  let currentStreak: number;
-  let currentStreakStart: string;
-  let currentStreakEnd: string;
-  let graceGapDays: number;
-  let graceProtected: boolean;
-
-  if (leadingMisses >= 7) {
-    currentStreak = 0;
-    currentStreakStart = '';
-    currentStreakEnd = '';
-    graceGapDays = 0;
-    graceProtected = false;
-  } else if (leadingMisses >= 2) {
-    graceProtected = true;
-    const run = calculateGraceRun(sortedDesc, afterGapIdx);
-    currentStreak = Math.max(0, run.streak - leadingMisses);
-    currentStreakStart = run.streakStart;
-    currentStreakEnd = run.streakEnd;
-    graceGapDays = run.graceGapDays;
-  } else {
-    graceProtected = false;
-    const run = calculateGraceRun(sortedDesc, startIdx);
-    currentStreak = run.streak;
-    currentStreakStart = run.streakStart;
-    currentStreakEnd = run.streakEnd;
-    graceGapDays = run.graceGapDays;
-  }
-
-  // Total missed days in the past 200 days (skip today if 0 contributions — UTC grace)
-  const windowDate = new Date(todayUTC);
-  windowDate.setUTCDate(todayUTC.getUTCDate() - 200);
-  const windowStart = windowDate.toISOString().split('T')[0];
-
+  // Missed days = zero-contribution days inside the grace window
   let missedDaysInWindow = 0;
   for (const day of days) {
-    if (day.date < windowStart || day.date > todayStr) continue;
-    if (day.date === todayStr && day.contributionCount === 0) continue;
+    if (!graceStart || day.date < graceStart || day.date > graceEnd) continue;
     if (day.contributionCount === 0) missedDaysInWindow++;
   }
 
@@ -399,9 +357,6 @@ function calculateStreaks(days: ContributionDay[], username: string): StreakData
     updatedDate: todayStr,
     weeklyStreak,
     currentWeekContributions,
-    graceGapDays,
-    graceProtected,
-    consecutiveMissed: leadingMisses,
     missedDaysInWindow,
   };
 }
@@ -434,12 +389,9 @@ function generateSVG(data: StreakData): string {
   const circleCy = 85;
   const circumference = 2 * Math.PI * circleRadius;
 
-  // Current streak circle (column 1) — amber when grace-protected, orange otherwise
-  const streakColor = data.graceProtected ? '#f59e0b' : '#f97316';
-  const streakDarkColor = data.graceProtected ? '#d97706' : '#ea580c';
-
+  // Current streak circle (column 1, orange)
   const currentCx = padding + columnWidth * 1.5;
-  const maxStreak = Math.max(data.currentStreak, 100);
+  const maxStreak = Math.max(data.currentStreak, 365);
   const currentProgress = Math.min((data.currentStreak / maxStreak) * 100, 100);
   const currentDashoffset = circumference - (currentProgress / 100) * circumference;
 
@@ -453,10 +405,19 @@ function generateSVG(data: StreakData): string {
     c 0,6 -5,11 -11,11 -6,0 -11,-5 -11,-11 0,-3 2,-6 4,-9 2,-2 4,-2 6,-1
     1,1 2,2 2,4 0,2 -1,4 -3,5 -1,1 -2,2 -2,3 0,1 1,3 3,3 2,0 3,-1 3,-3
     0,-1 0,-2 -1,-2"
-    fill="${streakColor}" stroke="${streakDarkColor}" stroke-width="0.5"/>`;
+    fill="#f97316" stroke="#ea580c" stroke-width="0.5"/>`;
 
-  // Missed days badge (bottom center of card)
-  const badgeText = `${data.missedDaysInWindow} missed \u00b7 past 200 days`;
+  // Red notification badge on streak ring (top-right arc), only when misses > 0
+  const badgeX = Math.round(currentCx + circleRadius * 0.707);
+  const badgeY = Math.round(circleCy - circleRadius * 0.707);
+  const missBadge = data.missedDaysInWindow > 0 ? `
+  <circle cx="${badgeX}" cy="${badgeY}" r="13" fill="#ef4444" stroke="white" stroke-width="2"/>
+  <text x="${badgeX}" y="${badgeY + 4}" font-family="system-ui, -apple-system, sans-serif"
+    font-size="12" fill="white" text-anchor="middle" font-weight="700">${data.missedDaysInWindow}</text>` : '';
+
+  // Missed days pill badge (bottom center of card)
+  const sinceLabel = data.currentStreakStart ? `since ${formatDate(data.currentStreakStart)}` : '';
+  const badgeText = `${data.missedDaysInWindow} missed \u00b7 ${sinceLabel}`;
   const badgeCx = width / 2;
   const badgeWidth = 210;
   const badgeFill = data.missedDaysInWindow === 0 ? '#f0fdf4' : '#fff7ed';
@@ -506,7 +467,7 @@ function generateSVG(data: StreakData): string {
   <circle cx="${currentCx}" cy="${circleCy}" r="${circleRadius}"
     fill="none" stroke="#e2e8f0" stroke-width="${circleStrokeWidth}"/>
   <circle cx="${currentCx}" cy="${circleCy}" r="${circleRadius}"
-    fill="none" stroke="${streakColor}" stroke-width="${circleStrokeWidth}"
+    fill="none" stroke="#f97316" stroke-width="${circleStrokeWidth}"
     stroke-dasharray="${circumference}"
     stroke-dashoffset="${currentDashoffset}"
     stroke-linecap="round"
@@ -516,17 +477,14 @@ function generateSVG(data: StreakData): string {
     ${data.currentStreak}
   </text>
   <text x="${currentCx}" y="${circleCy + circleRadius + 30}" font-family="system-ui, -apple-system, sans-serif"
-    font-size="20" fill="${streakColor}" font-weight="600" text-anchor="middle">
+    font-size="20" fill="#f97316" font-weight="600" text-anchor="middle">
     Current Streak
   </text>
   <text x="${currentCx}" y="${circleCy + circleRadius + 52}" font-family="system-ui, -apple-system, sans-serif"
     font-size="14" fill="#64748b" text-anchor="middle">
     ${currentStreakRange}
   </text>
-  ${data.graceProtected ? `<text x="${currentCx}" y="${circleCy + circleRadius + 67}" font-family="system-ui, -apple-system, sans-serif"
-    font-size="11" fill="${streakColor}" text-anchor="middle" font-style="italic">
-    grace period \u00b7 -${data.consecutiveMissed}d
-  </text>` : ''}
+  ${missBadge}
 
   <!-- Divider 2 -->
   <line x1="${padding + columnWidth * 2}" y1="${padding}" x2="${padding + columnWidth * 2}" y2="${height - padding}" stroke="#e2e8f0" stroke-width="1"/>
