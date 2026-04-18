@@ -22,6 +22,10 @@ interface StreakData {
   updatedDate: string;
   weeklyStreak: number;
   currentWeekContributions: number;
+  graceGapDays: number;
+  graceProtected: boolean;
+  consecutiveMissed: number;
+  missedDaysInWindow: number;
 }
 
 const GITHUB_GRAPHQL_URL = 'https://api.github.com/graphql';
@@ -247,6 +251,34 @@ function calculateWeeklyStreak(days: ContributionDay[]): { weeklyStreak: number;
   return { weeklyStreak, currentWeekContributions };
 }
 
+function calculateGraceRun(
+  sortedDesc: ContributionDay[],
+  startIdx: number
+): { streak: number; streakStart: string; streakEnd: string; graceGapDays: number } {
+  let streak = 0;
+  let streakStart = '';
+  let streakEnd = '';
+  let graceGapDays = 0;
+  let consecutiveMisses = 0;
+
+  for (let j = startIdx; j < sortedDesc.length; j++) {
+    const day = sortedDesc[j];
+    if (day.contributionCount > 0) {
+      if (streak === 0) streakEnd = day.date;
+      streakStart = day.date;
+      streak++;
+      consecutiveMisses = 0;
+    } else if (consecutiveMisses === 0) {
+      graceGapDays++;
+      consecutiveMisses = 1;
+    } else {
+      break;
+    }
+  }
+
+  return { streak, streakStart, streakEnd, graceGapDays };
+}
+
 function calculateStreaks(days: ContributionDay[], username: string): StreakData {
   const today = new Date();
   const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
@@ -262,32 +294,65 @@ function calculateStreaks(days: ContributionDay[], username: string): StreakData
     }
   }
 
-  let currentStreak = 0;
-  let currentStreakStart = '';
-  let currentStreakEnd = '';
+  // Grace streak: 1-day gaps are bridged; 2–6 consecutive misses freeze the streak
+  // (reduced by gap size); 7+ consecutive misses reset to 0.
+  const sortedDesc = [...days].sort((a, b) => b.date.localeCompare(a.date));
 
-  for (let i = days.length - 1; i >= 0; i--) {
-    const day = days[i];
+  let startIdx = 0;
+  while (startIdx < sortedDesc.length && sortedDesc[startIdx].date > todayStr) startIdx++;
+  if (
+    startIdx < sortedDesc.length &&
+    sortedDesc[startIdx].date === todayStr &&
+    sortedDesc[startIdx].contributionCount === 0
+  ) {
+    startIdx++;
+  }
 
-    if (day.date > todayStr) {
-      continue;
-    }
+  let leadingMisses = 0;
+  let afterGapIdx = startIdx;
+  while (afterGapIdx < sortedDesc.length && sortedDesc[afterGapIdx].contributionCount === 0) {
+    leadingMisses++;
+    afterGapIdx++;
+  }
 
-    // Skip today if it has 0 contributions — the UTC day may have started
-    // before the user's local day ended, so don't break the streak yet.
-    if (day.date === todayStr && day.contributionCount === 0) {
-      continue;
-    }
+  let currentStreak: number;
+  let currentStreakStart: string;
+  let currentStreakEnd: string;
+  let graceGapDays: number;
+  let graceProtected: boolean;
 
-    if (day.contributionCount > 0) {
-      if (currentStreak === 0) {
-        currentStreakEnd = day.date;
-      }
-      currentStreakStart = day.date;
-      currentStreak++;
-    } else {
-      break;
-    }
+  if (leadingMisses >= 7) {
+    currentStreak = 0;
+    currentStreakStart = '';
+    currentStreakEnd = '';
+    graceGapDays = 0;
+    graceProtected = false;
+  } else if (leadingMisses >= 2) {
+    graceProtected = true;
+    const run = calculateGraceRun(sortedDesc, afterGapIdx);
+    currentStreak = Math.max(0, run.streak - leadingMisses);
+    currentStreakStart = run.streakStart;
+    currentStreakEnd = run.streakEnd;
+    graceGapDays = run.graceGapDays;
+  } else {
+    graceProtected = false;
+    const run = calculateGraceRun(sortedDesc, startIdx);
+    currentStreak = run.streak;
+    currentStreakStart = run.streakStart;
+    currentStreakEnd = run.streakEnd;
+    graceGapDays = run.graceGapDays;
+  }
+
+  // Total missed days in the past 200 days (skip today if 0 contributions — UTC grace)
+  const windowDate = new Date(todayUTC);
+  windowDate.setUTCDate(todayUTC.getUTCDate() - 200);
+  const windowStart = windowDate.toISOString().split('T')[0];
+
+  let missedDaysInWindow = 0;
+  for (const day of days) {
+    if (day.date < windowStart || day.date > todayStr) continue;
+    if (day.date === todayStr && day.contributionCount === 0) continue;
+    if (day.contributionCount === 0) missedDaysInWindow++;
   }
 
   let longestStreak = 0;
@@ -334,6 +399,10 @@ function calculateStreaks(days: ContributionDay[], username: string): StreakData
     updatedDate: todayStr,
     weeklyStreak,
     currentWeekContributions,
+    graceGapDays,
+    graceProtected,
+    consecutiveMissed: leadingMisses,
+    missedDaysInWindow,
   };
 }
 
@@ -365,7 +434,10 @@ function generateSVG(data: StreakData): string {
   const circleCy = 85;
   const circumference = 2 * Math.PI * circleRadius;
 
-  // Current streak circle (column 1, orange)
+  // Current streak circle (column 1) — amber when grace-protected, orange otherwise
+  const streakColor = data.graceProtected ? '#f59e0b' : '#f97316';
+  const streakDarkColor = data.graceProtected ? '#d97706' : '#ea580c';
+
   const currentCx = padding + columnWidth * 1.5;
   const maxStreak = Math.max(data.currentStreak, 100);
   const currentProgress = Math.min((data.currentStreak / maxStreak) * 100, 100);
@@ -381,7 +453,15 @@ function generateSVG(data: StreakData): string {
     c 0,6 -5,11 -11,11 -6,0 -11,-5 -11,-11 0,-3 2,-6 4,-9 2,-2 4,-2 6,-1
     1,1 2,2 2,4 0,2 -1,4 -3,5 -1,1 -2,2 -2,3 0,1 1,3 3,3 2,0 3,-1 3,-3
     0,-1 0,-2 -1,-2"
-    fill="#f97316" stroke="#ea580c" stroke-width="0.5"/>`;
+    fill="${streakColor}" stroke="${streakDarkColor}" stroke-width="0.5"/>`;
+
+  // Missed days badge (bottom center of card)
+  const badgeText = `${data.missedDaysInWindow} missed \u00b7 past 200 days`;
+  const badgeCx = width / 2;
+  const badgeWidth = 210;
+  const badgeFill = data.missedDaysInWindow === 0 ? '#f0fdf4' : '#fff7ed';
+  const badgeStroke = data.missedDaysInWindow === 0 ? '#bbf7d0' : '#fed7aa';
+  const badgeTextFill = data.missedDaysInWindow === 0 ? '#16a34a' : '#9a3412';
 
   // Small calendar icon above the weekly streak circle
   const calY = circleCy - circleRadius - 22;
@@ -426,7 +506,7 @@ function generateSVG(data: StreakData): string {
   <circle cx="${currentCx}" cy="${circleCy}" r="${circleRadius}"
     fill="none" stroke="#e2e8f0" stroke-width="${circleStrokeWidth}"/>
   <circle cx="${currentCx}" cy="${circleCy}" r="${circleRadius}"
-    fill="none" stroke="#f97316" stroke-width="${circleStrokeWidth}"
+    fill="none" stroke="${streakColor}" stroke-width="${circleStrokeWidth}"
     stroke-dasharray="${circumference}"
     stroke-dashoffset="${currentDashoffset}"
     stroke-linecap="round"
@@ -436,13 +516,17 @@ function generateSVG(data: StreakData): string {
     ${data.currentStreak}
   </text>
   <text x="${currentCx}" y="${circleCy + circleRadius + 30}" font-family="system-ui, -apple-system, sans-serif"
-    font-size="20" fill="#f97316" font-weight="600" text-anchor="middle">
+    font-size="20" fill="${streakColor}" font-weight="600" text-anchor="middle">
     Current Streak
   </text>
   <text x="${currentCx}" y="${circleCy + circleRadius + 52}" font-family="system-ui, -apple-system, sans-serif"
     font-size="14" fill="#64748b" text-anchor="middle">
     ${currentStreakRange}
   </text>
+  ${data.graceProtected ? `<text x="${currentCx}" y="${circleCy + circleRadius + 67}" font-family="system-ui, -apple-system, sans-serif"
+    font-size="11" fill="${streakColor}" text-anchor="middle" font-style="italic">
+    grace period \u00b7 -${data.consecutiveMissed}d
+  </text>` : ''}
 
   <!-- Divider 2 -->
   <line x1="${padding + columnWidth * 2}" y1="${padding}" x2="${padding + columnWidth * 2}" y2="${height - padding}" stroke="#e2e8f0" stroke-width="1"/>
@@ -486,6 +570,14 @@ function generateSVG(data: StreakData): string {
   <text x="${padding + columnWidth * 3.5}" y="145" font-family="system-ui, -apple-system, sans-serif"
     font-size="14" fill="#94a3b8" text-anchor="middle">
     ${longestStreakRange}
+  </text>
+
+  <!-- Missed days badge (bottom center) -->
+  <rect x="${badgeCx - badgeWidth / 2}" y="193" width="${badgeWidth}" height="17" rx="8.5"
+    fill="${badgeFill}" stroke="${badgeStroke}" stroke-width="1"/>
+  <text x="${badgeCx}" y="205" font-family="system-ui, -apple-system, sans-serif"
+    font-size="11" fill="${badgeTextFill}" text-anchor="middle" font-weight="500">
+    ${badgeText}
   </text>
 </svg>`;
 }
