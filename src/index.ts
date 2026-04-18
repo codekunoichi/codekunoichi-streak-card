@@ -34,9 +34,13 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({ ok: true }), {
+      return new Response(JSON.stringify({ ok: true, build: 'grace-v3' }), {
         headers: { 'Content-Type': 'application/json' },
       });
+    }
+
+    if (url.pathname === '/debug') {
+      return handleDebug(env);
     }
 
     if (url.pathname === '/streak.svg') {
@@ -248,25 +252,76 @@ function calculateWeeklyStreak(days: ContributionDay[]): { weeklyStreak: number;
   return { weeklyStreak, currentWeekContributions };
 }
 
-// Returns the start of the active grace window: the first contribution day after the most
-// recent block of 7+ consecutive zero-contribution days. Resets whenever such a block occurs.
-function findGraceStreakStart(days: ContributionDay[], todayStr: string): string {
-  let graceStart = '';
+// Walk backward from graceEnd to find where the current grace window began.
+// A run of 7+ consecutive zero-contribution days marks the reset boundary.
+// days must be sorted ascending (oldest first).
+function findGraceStreakStart(days: ContributionDay[], graceEnd: string): string {
   let consecutiveZeros = 0;
+  let graceStart = '';
 
-  for (const day of days) {
-    if (day.date > todayStr) break;
+  for (let i = days.length - 1; i >= 0; i--) {
+    const day = days[i];
+    if (day.date > graceEnd) continue;
+
     if (day.contributionCount > 0) {
-      if (consecutiveZeros >= 7 || !graceStart) {
-        graceStart = day.date;
-      }
+      graceStart = day.date;
       consecutiveZeros = 0;
     } else {
       consecutiveZeros++;
+      if (consecutiveZeros >= 7) break;
     }
   }
 
   return graceStart;
+}
+
+async function handleDebug(env: Env): Promise<Response> {
+  try {
+    const username = env.GITHUB_USERNAME || 'codekunoichi';
+    const days = await fetchGitHubContributions(username, env.GITHUB_TOKEN);
+
+    const today = new Date();
+    const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+    const todayStr = todayUTC.toISOString().split('T')[0];
+
+    const todayEntry = days.find(d => d.date === todayStr);
+    let graceEnd = todayStr;
+    if (!todayEntry || todayEntry.contributionCount === 0) {
+      const yesterday = new Date(todayUTC);
+      yesterday.setUTCDate(todayUTC.getUTCDate() - 1);
+      graceEnd = yesterday.toISOString().split('T')[0];
+    }
+
+    const graceStart = findGraceStreakStart(days, graceEnd);
+    const currentStreak = graceStart
+      ? Math.round((new Date(graceEnd + 'T00:00:00Z').getTime() - new Date(graceStart + 'T00:00:00Z').getTime()) / 86400000) + 1
+      : 0;
+
+    let missedDays = 0;
+    for (const day of days) {
+      if (!graceStart || day.date < graceStart || day.date > graceEnd) continue;
+      if (day.contributionCount === 0) missedDays++;
+    }
+
+    const recentDays = days.filter(d => d.date >= '2026-04-10');
+
+    return new Response(JSON.stringify({
+      build: 'grace-v3',
+      todayStr,
+      graceEnd,
+      graceStart,
+      currentStreak,
+      missedDays,
+      totalDaysInArray: days.length,
+      todayEntry,
+      recentDays,
+    }, null, 2), { headers: { 'Content-Type': 'application/json' } });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: String(err) }, null, 2), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 }
 
 function calculateStreaks(days: ContributionDay[], username: string): StreakData {
@@ -284,24 +339,21 @@ function calculateStreaks(days: ContributionDay[], username: string): StreakData
     }
   }
 
-  // Grace window: starts at the first contribution after the most recent 7+ consecutive
-  // zero block and extends to today. Resets only on 7+ consecutive misses.
-  const graceStart = findGraceStreakStart(days, todayStr);
-
-  // Grace window end: skip today if it has 0 contributions (UTC day may precede local day)
-  let graceEnd = todayStr;
+  // Grace window end: skip today if 0 contributions (UTC day may precede local day)
   const todayEntry = days.find(d => d.date === todayStr);
+  let graceEnd = todayStr;
   if (!todayEntry || todayEntry.contributionCount === 0) {
     const yesterday = new Date(todayUTC);
     yesterday.setUTCDate(todayUTC.getUTCDate() - 1);
     graceEnd = yesterday.toISOString().split('T')[0];
   }
 
+  // Grace window start: walk backward from graceEnd; stop at 7+ consecutive zeros
+  const graceStart = findGraceStreakStart(days, graceEnd);
+
   // Current streak = calendar days in the grace window (inclusive)
-  const graceStartDate = new Date(graceStart + 'T00:00:00Z');
-  const graceEndDate = new Date(graceEnd + 'T00:00:00Z');
   const currentStreak = graceStart
-    ? Math.round((graceEndDate.getTime() - graceStartDate.getTime()) / 86400000) + 1
+    ? Math.round((new Date(graceEnd + 'T00:00:00Z').getTime() - new Date(graceStart + 'T00:00:00Z').getTime()) / 86400000) + 1
     : 0;
   const currentStreakStart = graceStart;
   const currentStreakEnd = graceStart ? graceEnd : '';
